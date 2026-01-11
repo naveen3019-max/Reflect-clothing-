@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 
-const API = process.env.NEXT_PUBLIC_API || "http://localhost:8080";
+const API = process.env.NEXT_PUBLIC_API_URL!;
 
 type Device = { deviceId: string; roomId?: string; status?: string; battery?: number; rssi?: number; lastSeen?: string; hotelId?: string; };
 type Alert = { type: string; payload: any; ts: string; };
