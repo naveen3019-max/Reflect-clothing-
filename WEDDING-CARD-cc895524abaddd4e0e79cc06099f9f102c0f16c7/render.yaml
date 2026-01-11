@@ -9,7 +9,7 @@ services:
     region: oregon # Change to your preferred region
     plan: free # or 'starter' for $7/month (no sleep)
     branch: master
-    rootDir: backend-api
+    rootDir: WEDDING-CARD-cc895524abaddd4e0e79cc06099f9f102c0f16c7/backend-api
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
