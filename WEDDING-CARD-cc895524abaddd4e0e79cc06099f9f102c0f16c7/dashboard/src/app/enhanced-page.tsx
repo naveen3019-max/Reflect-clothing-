@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API ;
+cconst API = process.env.NEXT_PUBLIC_API_URL || "";
 
 type Device = {
   deviceId: string;
