@@ -16,13 +16,20 @@ import json
 from sse_starlette.sse import EventSourceResponse
 import redis.asyncio as redis
 from bson import ObjectId
+import sys
 
-# Configure logging
+# Configure logging with forced flushing for Render
 logging.basicConfig(
-    level=logging.INFO if settings.debug else logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+    force=True
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Force unbuffered output for Render
+sys.stdout.reconfigure(line_buffering=True)
 
 app = FastAPI(
     title="Hotel Tablet Security API",
@@ -131,8 +138,17 @@ async def monitor_device_heartbeats():
 @app.on_event("startup")
 async def on_startup():
     global redis_client, monitoring_task
+    
+    print("="*60, flush=True)
+    print("🚀 BACKEND STARTUP", flush=True)
+    print(f"   Environment: {settings.app_env}", flush=True)
+    print(f"   Debug: {settings.debug}", flush=True)
+    print(f"   MongoDB: {settings.mongodb_url}", flush=True)
+    print("="*60, flush=True)
+    
     # Initialize MongoDB indexes
     await init_db()
+    print("✅ MongoDB indexes created successfully", flush=True)
     
     # Initialize Redis for SSE
     try:
@@ -140,13 +156,19 @@ async def on_startup():
         await redis_instance.ping()
         redis_client = redis_instance
         logger.info("Redis connected for SSE")
+        print("✅ Redis connected for SSE", flush=True)
     except Exception as e:
         redis_client = None
         logger.warning(f"Redis connection failed: {e}. SSE will work without Redis.")
+        print(f"⚠️ Redis connection failed: {e}", flush=True)
     
     # Start background heartbeat monitoring
     monitoring_task = asyncio.create_task(monitor_device_heartbeats())
     logger.info("🚀 Background heartbeat monitoring started")
+    print("✅ Heartbeat monitoring task started", flush=True)
+    print("="*60, flush=True)
+    print("📡 READY TO ACCEPT CONNECTIONS", flush=True)
+    print("="*60, flush=True)
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -267,6 +289,14 @@ async def create_user_token(username: str = Body(...), password: str = Body(...)
 @app.post("/api/devices/register")
 async def register_device(payload: DeviceRegister):
     """Register device and return JWT token"""
+    # Use print for immediate visibility in Render logs
+    print("="*60, flush=True)
+    print(f"📱 NEW DEVICE REGISTRATION", flush=True)
+    print(f"   Device ID: {payload.deviceId}", flush=True)
+    print(f"   Room ID: {payload.roomId}", flush=True)
+    print(f"   Hotel ID: {payload.hotelId or 'default'}", flush=True)
+    print("="*60, flush=True)
+    
     logger.info("="*60)
     logger.info(f"📱 NEW DEVICE REGISTRATION")
     logger.info(f"   Device ID: {payload.deviceId}")
@@ -295,6 +325,10 @@ async def register_device(payload: DeviceRegister):
         room_id=payload.roomId,
         hotel_id=payload.hotelId or "default"
     )
+    
+    print(f"✅ Device {payload.deviceId} registered successfully", flush=True)
+    print(f"🔑 JWT Token issued (length: {len(token)} chars)", flush=True)
+    print("="*60, flush=True)
     
     logger.info(f"✅ Device {payload.deviceId} registered successfully")
     logger.info(f"🔑 JWT Token issued (length: {len(token)} chars)")
@@ -468,6 +502,9 @@ async def alert_battery(b: Battery, device=Depends(get_current_device)):
 async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     """Record device heartbeat (JWT protected)"""
     h.ts = h.ts or datetime.utcnow()
+    
+    # Print for immediate visibility
+    print(f"💓 HEARTBEAT: {h.deviceId} | Room: {h.roomId} | RSSI: {h.rssi} dBm | Battery: {h.battery}%", flush=True)
     
     logger.info(f"💓 HEARTBEAT: {h.deviceId} | Room: {h.roomId} | RSSI: {h.rssi} dBm | BSSID: {h.wifiBssid[:17]}")
     
