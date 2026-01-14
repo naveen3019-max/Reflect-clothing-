@@ -133,6 +133,11 @@ export default function EnhancedDashboard() {
 
   const acknowledgeAlert = async (alert: Alert) => {
     try {
+      if (!alert.payload?.deviceId) {
+        console.error("Alert missing deviceId", alert);
+        return;
+      }
+      
       await fetch(`${API}/api/alerts/acknowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -325,14 +330,14 @@ export default function EnhancedDashboard() {
                           {a.type}
                         </span>
                         <span className="text-sm font-medium">
-                          {a.payload.deviceId} • Room {a.payload.roomId}
+                          {a.payload?.deviceId || 'Unknown'} • Room {a.payload?.roomId || 'Unknown'}
                         </span>
                         {a.acknowledged && (
                           <span className="text-xs text-green-600">✓ Acknowledged</span>
                         )}
                       </div>
                       <pre className="mt-2 text-xs text-gray-600 overflow-auto">
-                        {JSON.stringify(a.payload, null, 2)}
+                        {JSON.stringify(a.payload || {}, null, 2)}
                       </pre>
                     </div>
                     <div className="text-right ml-4">
