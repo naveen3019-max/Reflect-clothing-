@@ -26,7 +26,8 @@ class WifiFence(
     private val targetSsid: String?,
     private val minRssi: Int,
     private val graceSeconds: Int,
-    private val onBreach: (Int?) -> Unit
+    private val onBreach: (Int?) -> Unit,
+    private val onRecovery: (() -> Unit)? = null
 ) {
 
     private val context = context.applicationContext
@@ -128,6 +129,14 @@ class WifiFence(
                                 "✅ Connected to WiFi (SSID=$currentSsid, RSSI=$currentRssi >= $minRssi dBm). Resetting breach counter (was $breachCounter)"
                             )
                         }
+                        
+                        // If recovering from breach state, notify
+                        if (isInBreachState) {
+                            Log.i("WifiFence", "🎉 WiFi RECOVERED - triggering recovery callback")
+                            isInBreachState = false
+                            onRecovery?.invoke()
+                        }
+                        
                         breachCounter = 0
                         isInBreachState = false  // Clear breach state when connection is restored
                     }

@@ -1,6 +1,9 @@
 package com.example.hotel.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -14,6 +17,15 @@ class LockActivity : AppCompatActivity() {
 
     private var clickCount = 0
     private var lastClickTime = 0L
+    
+    private val recoveryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.example.hotel.WIFI_RECOVERED") {
+                android.util.Log.i("LockActivity", "🎉 WiFi recovered broadcast received - closing breach screen")
+                finish()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +79,19 @@ class LockActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Just display message - no lock enforcement
+        // Register receiver to listen for WiFi recovery
+        val filter = IntentFilter("com.example.hotel.WIFI_RECOVERED")
+        registerReceiver(recoveryReceiver, filter)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Unregister receiver
+        try {
+            unregisterReceiver(recoveryReceiver)
+        } catch (e: Exception) {
+            // Already unregistered
+        }
     }
 
     override fun onBackPressed() {

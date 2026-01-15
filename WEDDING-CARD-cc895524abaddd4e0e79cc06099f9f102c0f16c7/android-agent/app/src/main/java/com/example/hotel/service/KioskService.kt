@@ -224,8 +224,8 @@ class KioskService : Service() {
             targetBssid = bssid,
             targetSsid = ssid,
             minRssi = minRssi,
-            graceSeconds = 3
-        ) { currentRssiNullable: Int? ->
+            graceSeconds = 3,
+            onBreach = { currentRssiNullable: Int? ->
 
             val currentRssi = currentRssiNullable ?: -127
             
@@ -308,7 +308,25 @@ class KioskService : Service() {
                 startActivity(lockIntent)
                 Log.e("KioskService", "✅ LockActivity launched successfully")
             }, 2000) // Wait 2 seconds to allow WiFi reconnection
-        }
+            },
+            onRecovery = {
+                // WiFi recovered - close the breach screen if it's open
+                Log.i("KioskService", "🎉 WiFi RECOVERED - closing breach screen")
+                
+                // Broadcast to close LockActivity
+                val intent = Intent("com.example.hotel.WIFI_RECOVERED")
+                sendBroadcast(intent)
+                
+                // Show toast notification
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(
+                        applicationContext,
+                        "✅ WiFi Connection Restored - Back Online",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
 
         wifiFence.start()
 
