@@ -552,12 +552,32 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     # Proactive breach detection: Check BSSID/RSSI against room baseline
     new_status = existing_status
     
-    if existing_status in [StatusEnum.ok, StatusEnum.offline]:
-        room = await rooms_collection.find_one({"_id": h.roomId})
-        if room:
-            target_bssid = room.get("bssid")
-            min_rssi = room.get("rssi_threshold", -80)
+    # Get room configuration to check against
+    room = await rooms_collection.find_one({"_id": h.roomId})
+    if room:
+        target_bssid = room.get("bssid")
+        min_rssi = room.get("rssi_threshold", -80)
+        
+        # Check if WiFi signal is good (BSSID matches AND RSSI is strong)
+        bssid_matches = not target_bssid or h.wifiBssid.lower() == target_bssid.lower()
+        rssi_good = h.rssi >= min_rssi
+        wifi_is_good = bssid_matches and rssi_good
+        
+        # If device was in breach but WiFi is now good, clear the breach
+        if existing_status == StatusEnum.breach and wifi_is_good:
+            logger.info(f"✅ WiFi RECOVERED: Device {h.deviceId} - BSSID OK, RSSI {h.rssi} >= {min_rssi}")
+            new_status = StatusEnum.ok
             
+            # Broadcast recovery event
+            await broadcast_event("device_recovered", {
+                "deviceId": h.deviceId,
+                "roomId": h.roomId,
+                "rssi": h.rssi,
+                "message": "Device WiFi connection restored"
+            })
+        
+        # If device is OK or offline, check for new breach
+        elif existing_status in [StatusEnum.ok, StatusEnum.offline]:
             # 1. BSSID Mismatch check (case-insensitive)
             if target_bssid and h.wifiBssid.lower() != target_bssid.lower():
                 logger.warning(f"🚨 Proactive Breach Detected (BSSID): Device {h.deviceId} reported {h.wifiBssid}, expected {target_bssid}")
@@ -568,37 +588,37 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
                 logger.warning(f"🚨 Proactive Breach Detected (RSSI): Device {h.deviceId} reported {h.rssi}, threshold {min_rssi}")
                 new_status = StatusEnum.breach
 
-        if new_status == StatusEnum.breach:
-            # Create a breach alert record
-            await alerts_collection.insert_one({
-                "deviceId": h.deviceId,
-                "roomId": h.roomId,
-                "type": "breach",
-                "severity": "high",
-                "message": f"Security boundary breach detected via proactive heartbeat monitoring (BSSID: {h.wifiBssid}, RSSI: {h.rssi})",
-                "rssi": h.rssi,
-                "bssid": h.wifiBssid,
-                "ts": h.ts,
-                "acknowledged": False
-            })
-            
-            # Broadcast alert
-            await broadcast_event("alert", {
-                "type": "breach",
-                "deviceId": h.deviceId,
-                "roomId": h.roomId,
-                "rssi": h.rssi,
-                "bssid": h.wifiBssid,
-                "source": "proactive_heartbeat"
-            })
-            
-            # Queue mobile notification
-            asyncio.create_task(
-                NotificationService.send_breach_alert(h.deviceId, h.roomId, h.rssi)
-            )
-        else:
-            # If not a breach and was offline, mark as OK
-            new_status = StatusEnum.ok
+            if new_status == StatusEnum.breach:
+                # Create a breach alert record
+                await alerts_collection.insert_one({
+                    "deviceId": h.deviceId,
+                    "roomId": h.roomId,
+                    "type": "breach",
+                    "severity": "high",
+                    "message": f"Security boundary breach detected via proactive heartbeat monitoring (BSSID: {h.wifiBssid}, RSSI: {h.rssi})",
+                    "rssi": h.rssi,
+                    "bssid": h.wifiBssid,
+                    "ts": h.ts,
+                    "acknowledged": False
+                })
+                
+                # Broadcast alert
+                await broadcast_event("alert", {
+                    "type": "breach",
+                    "deviceId": h.deviceId,
+                    "roomId": h.roomId,
+                    "rssi": h.rssi,
+                    "bssid": h.wifiBssid,
+                    "source": "proactive_heartbeat"
+                })
+                
+                # Queue mobile notification
+                asyncio.create_task(
+                    NotificationService.send_breach_alert(h.deviceId, h.roomId, h.rssi)
+                )
+            else:
+                # If not a breach and was offline, mark as OK
+                new_status = StatusEnum.ok
 
     update_data = {
         "room_id": h.roomId,

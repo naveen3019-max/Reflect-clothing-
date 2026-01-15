@@ -159,14 +159,6 @@ class MainActivity : AppCompatActivity() {
  
     override fun onStop() {
         super.onStop()
-        
-        // If breach occurred, force lock screen
-        val prefs = getSharedPreferences("agent", MODE_PRIVATE)
-        if (prefs.getBoolean("breach", false)) {
-            startActivity(
-                Intent(this, com.example.hotel.ui.LockActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
+        // No longer enforce lock screen on stop
     }
 }

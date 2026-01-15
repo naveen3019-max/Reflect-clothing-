@@ -67,35 +67,11 @@ class LockActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Enforce Kiosk Mode (Lock Task)
-        try {
-             // Check if we are device owner or have permission
-             val dpm = getSystemService(android.content.Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-             if (dpm.isLockTaskPermitted(packageName)) {
-                 startLockTask()
-             } else {
-                 // Try anyway, might catch exception if not allowed
-                 startLockTask()
-             }
-        } catch (e: Exception) {
-             android.util.Log.e("LockActivity", "Failed to start lock task", e)
-        }
+        // Just display message - no lock enforcement
     }
 
     override fun onBackPressed() {
-        // Block back button
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // Check if kiosk is temporarily disabled
-        val prefs = getSharedPreferences("admin", MODE_PRIVATE)
-        val disabledUntil = prefs.getLong("kiosk_disabled_until", 0)
-        if (System.currentTimeMillis() < disabledUntil) {
-            // Kiosk disabled, allow exit
-            return
-        }
-        // Bring lock screen back if user tries to escape
-        startActivity(intent)
+        // Allow back button to work
+        super.onBackPressed()
     }
 }
