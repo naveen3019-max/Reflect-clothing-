@@ -190,8 +190,14 @@ class KioskService : Service() {
                     }
                 }
 
-                // Orange breach screen disabled - only send backend alert
-                Log.i("KioskService", "ℹ️ Breach alert sent to backend (orange screen disabled)")
+                // Show orange breach screen
+                val lockIntent =
+                    Intent(this, com.example.hotel.ui.LockActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                Log.e("KioskService", "🔒 Launching LockActivity (Orange Breach Screen)...")
+                startActivity(lockIntent)
+                Log.e("KioskService", "✅ LockActivity launched successfully")
             }, 2000) // Wait 2 seconds to allow WiFi reconnection
             },
             onRecovery = {
