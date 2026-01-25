@@ -49,6 +49,8 @@ class WifiFence(
     private var lastKnownSsid: String? = null
     private var wifiDisconnectTime: Long = 0
     private var lastNetworkCheckTime: Long = 0
+    private var wifiReconnectingTime: Long = 0  // Time when WiFi started reconnecting
+    private val reconnectGracePeriodMs = 10000L  // 10 seconds grace period for WiFi to reconnect
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -97,14 +99,33 @@ class WifiFence(
                 lastKnownRssi = currentRssi
                 lastKnownBssid = currentBssid
                 lastKnownSsid = currentSsid
+                
+                // Check if WiFi is currently enabled
+                val isWifiEnabled = wifiManager.isWifiEnabled
+                
+                // Detect WiFi reconnection (was off, now turning on)
+                if (isWifiEnabled && wifiReconnectingTime == 0L && isInBreachState) {
+                    wifiReconnectingTime = System.currentTimeMillis()
+                    Log.i("WifiFence", "🔄 WiFi turned back ON - starting reconnection grace period")
+                }
+                
+                // Check if we're in reconnection grace period
+                val isInReconnectGracePeriod = wifiReconnectingTime > 0 && 
+                    (System.currentTimeMillis() - wifiReconnectingTime) < reconnectGracePeriodMs
+                
+                if (isInReconnectGracePeriod) {
+                    val elapsed = (System.currentTimeMillis() - wifiReconnectingTime) / 1000
+                    Log.i("WifiFence", "⏳ WiFi reconnecting... grace period ${elapsed}s / ${reconnectGracePeriodMs/1000}s")
+                }
 
                 // ===== SIMPLE BREACH DETECTION - ANY WIFI =====
                 // Only check if WiFi is ON and connected to ANY network
                 when {
                     // 1️⃣ CRITICAL: WiFi completely OFF
-                    !wifiManager.isWifiEnabled -> {
+                    !isWifiEnabled -> {
                         Log.e("WifiFence", "🚨 WiFi is DISABLED (turned OFF)")
                         breachCounter += 3  // Immediate breach
+                        wifiReconnectingTime = 0  // Reset reconnection timer
                     }
 
                     // 2️⃣ CRITICAL: Network loss > 15 seconds
@@ -113,6 +134,12 @@ class WifiFence(
                         Log.e("WifiFence", "🚨 Network disconnected for > 15 seconds")
                         breachCounter += 3  // Immediate breach
                         wifiDisconnectTime = 0
+                    }
+
+                    // 🔄 GRACE PERIOD: WiFi is reconnecting, give it time
+                    isInReconnectGracePeriod -> {
+                        Log.i("WifiFence", "⏳ In reconnection grace period - not counting as breach")
+                        breachCounter = 0  // Don't accumulate breaches during grace period
                     }
 
                     // 3️⃣ Connection info is null (disconnected or location disabled)
@@ -134,6 +161,7 @@ class WifiFence(
                         if (isInBreachState) {
                             Log.i("WifiFence", "🎉 WiFi RECOVERED - triggering recovery callback")
                             isInBreachState = false
+                            wifiReconnectingTime = 0  // Clear reconnection timer
                             onRecovery?.invoke()
                         }
                         
@@ -194,6 +222,7 @@ class WifiFence(
         Log.e("WifiFence", "🚀 WifiFence STARTED - Monitoring every ${scanIntervalMs}ms, Min RSSI: $minRssi dBm, Grace: $graceSeconds s")
         isInBreachState = false  // Reset breach state on start
         wifiDisconnectTime = 0
+        wifiReconnectingTime = 0  // Reset reconnection timer
         
         // Register for network updates
         val request = NetworkRequest.Builder()
