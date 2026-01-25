@@ -103,10 +103,11 @@ class WifiFence(
                 // Check if WiFi is currently enabled
                 val isWifiEnabled = wifiManager.isWifiEnabled
                 
-                // Detect WiFi reconnection (was off, now turning on)
-                if (isWifiEnabled && wifiReconnectingTime == 0L && isInBreachState) {
+                // Detect WiFi reconnection (WiFi enabled but not connected yet)
+                // Start grace period whenever WiFi is ON but not connected (regardless of breach state)
+                if (isWifiEnabled && currentBssid == null && wifiReconnectingTime == 0L) {
                     wifiReconnectingTime = System.currentTimeMillis()
-                    Log.i("WifiFence", "🔄 WiFi turned back ON - starting reconnection grace period")
+                    Log.i("WifiFence", "🔄 WiFi is ON but not connected - starting reconnection grace period")
                 }
                 
                 // Check if we're in reconnection grace period
