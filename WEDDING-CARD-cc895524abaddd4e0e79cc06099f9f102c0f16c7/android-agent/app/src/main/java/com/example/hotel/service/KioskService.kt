@@ -149,8 +149,15 @@ class KioskService : Service() {
                 val currentRssiNow = connectionInfo?.rssi ?: -127
                 val isWifiOn = wifiManager.isWifiEnabled
                 val isConnected = isWifiOn && connectionInfo != null && connectionInfo.networkId != -1
+                val currentBssid = connectionInfo?.bssid
                 
-                Log.i("KioskService", "📊 Breach recheck: WiFi ON=$isWifiOn, Connected=$isConnected, RSSI=$currentRssiNow dBm")
+                Log.i("KioskService", "📊 Breach recheck: WiFi ON=$isWifiOn, Connected=$isConnected, BSSID=$currentBssid, RSSI=$currentRssiNow dBm")
+                
+                // Check if WiFi is ON but still connecting (grace period for reconnection)
+                if (isWifiOn && !isConnected) {
+                    Log.i("KioskService", "⏳ WiFi is ON but still connecting - giving it more time (canceling breach)")
+                    return@postDelayed
+                }
                 
                 // Check if WiFi is ON and signal is now strong
                 if (isConnected && currentRssiNow >= minRssi) {
