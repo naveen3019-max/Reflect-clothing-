@@ -619,6 +619,19 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
             else:
                 # If not a breach and was offline, mark as OK
                 new_status = StatusEnum.ok
+    else:
+        # No room configuration exists - clear breach when heartbeat received
+        if existing_status == StatusEnum.breach:
+            logger.info(f"✅ WiFi RECOVERED (No room config): Device {h.deviceId} - Clearing breach on heartbeat, RSSI {h.rssi}")
+            new_status = StatusEnum.ok
+            
+            # Broadcast recovery event
+            await broadcast_event("device_recovered", {
+                "deviceId": h.deviceId,
+                "roomId": h.roomId,
+                "rssi": h.rssi,
+                "message": "Device WiFi connection restored"
+            })
 
     update_data = {
         "room_id": h.roomId,

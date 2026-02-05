@@ -1,6 +1,10 @@
 package com.example.hotel.admin
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.example.hotel.data.AgentRepository
@@ -30,6 +34,18 @@ class ProvisioningActivity : AppCompatActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Request SYSTEM_ALERT_WINDOW permission for showing breach screen over other apps
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                Toast.makeText(this, "Please enable 'Display over other apps' permission", Toast.LENGTH_LONG).show()
+            }
+        }
         
         // Check if already provisioned
         val prefs = getSharedPreferences("agent", MODE_PRIVATE)
@@ -85,8 +101,8 @@ class ProvisioningActivity : AppCompatActivity() {
         layout.addView(backendUrlLabel)
         
         backendUrlInput = EditText(this).apply {
-            hint = "http://YOUR_IP:8080"
-            setText("http://10.247.23.77:8080")  // Default value
+            hint = "https://hotel-backend-zqc1.onrender.com/"
+            setText("https://hotel-backend-zqc1.onrender.com/")  // Default value
             setPadding(16, 16, 16, 16)
         }
         layout.addView(backendUrlInput)
@@ -149,15 +165,35 @@ class ProvisioningActivity : AppCompatActivity() {
         
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                // Save backend URL first
+                android.util.Log.d("Provisioning", "Starting registration...")
+                android.util.Log.d("Provisioning", "Backend URL: $backendUrl")
+                android.util.Log.d("Provisioning", "Device ID: $deviceId")
+                android.util.Log.d("Provisioning", "Room ID: $roomId")
+                
+                // Show progress on UI
+                withContext(Dispatchers.Main) {
+                    statusText.text = "Connecting to backend...\n(This may take up to 60 seconds if server is sleeping)"
+                }
+                
+                // Save backend URL and prepare SharedPreferences
                 val prefs = getSharedPreferences("agent", MODE_PRIVATE)
                 prefs.edit().putString("backend_url", backendUrl).apply()
                 
+                android.util.Log.d("Provisioning", "Creating repository...")
                 val repo = AgentRepository.default(applicationContext).alerts
                 val tempAuth = "Bearer changeme" // Temporary auth for initial registration
                 
+                // Update progress
+                withContext(Dispatchers.Main) {
+                    statusText.text = "Registering device with backend..."
+                }
+                
                 // Register device with backend
+                android.util.Log.d("Provisioning", "Calling register API...")
+                val startTime = System.currentTimeMillis()
                 val registerResponse = repo.register(tempAuth, RegisterRequest(deviceId, roomId))
+                val duration = (System.currentTimeMillis() - startTime) / 1000.0
+                android.util.Log.d("Provisioning", "Register response received in ${duration}s: $registerResponse")
                 
                 // Extract JWT token from response
                 val jwtToken = registerResponse["token"] as? String
@@ -165,6 +201,7 @@ class ProvisioningActivity : AppCompatActivity() {
                     throw Exception("No token received from server")
                 }
                 
+                android.util.Log.d("Provisioning", "Token received: ${jwtToken.take(20)}...")
                 val authHeader = "Bearer $jwtToken"
                 
                 // Use ANY WiFi configuration - no specific BSSID/SSID required
@@ -172,8 +209,7 @@ class ProvisioningActivity : AppCompatActivity() {
                 val ssid = "ANY_WIFI"
                 val minRssi = -70  // Default threshold: -70 dBm for any WiFi
                 
-                // Save to SharedPreferences including the JWT token
-                val prefs = getSharedPreferences("agent", MODE_PRIVATE)
+                // Save all settings to SharedPreferences including the JWT token
                 prefs.edit()
                     .putString("device_id", deviceId)
                     .putString("room_id", roomId)
@@ -183,6 +219,8 @@ class ProvisioningActivity : AppCompatActivity() {
                     .putInt("minRssi", minRssi)
                     .putBoolean("provisioned", true)
                     .apply()
+                
+                android.util.Log.d("Provisioning", "Settings saved, registration complete!")
                 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
@@ -201,12 +239,49 @@ class ProvisioningActivity : AppCompatActivity() {
                 }
                 
             } catch (e: Exception) {
+                android.util.Log.e("Provisioning", "Registration failed", e)
+                
+                // Detailed error classification
+                val errorMsg = when {
+                    e is java.net.SocketTimeoutException -> {
+                        "Timeout: Backend didn't respond in 60 seconds\n\nPossible causes:\n" +
+                        "• Render server is cold starting (can take 50+ seconds)\n" +
+                        "• Internet connection too slow\n" +
+                        "• Backend URL incorrect\n\nTry again in a moment."
+                    }
+                    e is java.net.UnknownHostException -> {
+                        "Cannot reach server\n\nPossible causes:\n" +
+                        "• No internet connection\n" +
+                        "• Wrong backend URL\n" +
+                        "• DNS issue\n\nCheck internet and URL:\n$backendUrl"
+                    }
+                    e is java.net.ConnectException -> {
+                        "Connection refused\n\nPossible causes:\n" +
+                        "• Backend is offline\n" +
+                        "• Wrong port number\n" +
+                        "• Firewall blocking\n\nBackend: $backendUrl"
+                    }
+                    e is javax.net.ssl.SSLException || e.message?.contains("SSL", ignoreCase = true) == true -> {
+                        "SSL/HTTPS error\n\nPossible causes:\n" +
+                        "• Certificate issue\n" +
+                        "• Incorrect HTTPS URL\n" +
+                        "• System date/time wrong\n\nCheck device date/time"
+                    }
+                    e.message?.contains("401", ignoreCase = true) == true || 
+                    e.message?.contains("403", ignoreCase = true) == true -> {
+                        "Authentication failed\n\nBackend rejected request\nContact administrator"
+                    }
+                    else -> {
+                        "Error: ${e.javaClass.simpleName}\n${e.message ?: "Unknown error"}\n\nCheck logcat for details"
+                    }
+                }
+                
                 withContext(Dispatchers.Main) {
-                    statusText.text = "Registration failed: ${e.message}"
+                    statusText.text = "Registration failed: $errorMsg"
                     Toast.makeText(
                         this@ProvisioningActivity,
-                        "Failed: ${e.message}",
-                        Toast.LENGTH_SHORT
+                        "Failed: $errorMsg\n\nCheck logcat for details",
+                        Toast.LENGTH_LONG
                     ).show()
                     registerButton.isEnabled = true
                 }

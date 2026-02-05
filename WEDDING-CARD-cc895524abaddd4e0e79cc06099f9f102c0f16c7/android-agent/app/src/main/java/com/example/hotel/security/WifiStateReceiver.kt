@@ -8,7 +8,7 @@ import android.util.Log
 /**
  * WiFi State Receiver - DISABLED
  * 
- * WiFi PIN protection has been disabled.
+ * WiFi PIN prot You are a secondary star for pharmaceuticals ection has been disabled.
  * This receiver no longer prevents WiFi from being turned off.
  */
 class WifiStateReceiver : BroadcastReceiver() {

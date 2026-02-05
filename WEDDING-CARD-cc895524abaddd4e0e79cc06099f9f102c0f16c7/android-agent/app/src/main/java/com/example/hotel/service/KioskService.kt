@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.hotel.security.BatteryWatcher
@@ -129,91 +130,102 @@ class KioskService : Service() {
             val pinDialogActive = prefs.getBoolean("wifi_pin_dialog_active", false)
             
             if (pinDialogActive) {
-                Log.w("KioskService", "🔐 WiFi PIN dialog is active - ignoring breach (will recheck in 2s)")
+                Log.w("KioskService", "🔐 WiFi PIN dialog is active - ignoring breach")
                 return@WifiFence
             }
-            
-            Log.i("KioskService", "⏱️ Waiting 2 seconds to confirm breach...")
-            // Wait 2 seconds to give WiFi time to reconnect
-            Handler(Looper.getMainLooper()).postDelayed({
-                // Check flag again
-                val stillActive = prefs.getBoolean("wifi_pin_dialog_active", false)
-                if (stillActive) {
-                    Log.w("KioskService", "🔐 WiFi PIN dialog now active - aborting breach trigger")
-                    return@postDelayed
-                }
-                
-                val wifiManager = getSystemService(Context.WIFI_SERVICE) as WifiManager
-                @Suppress("DEPRECATION")
-                val connectionInfo = wifiManager.connectionInfo
-                val currentRssiNow = connectionInfo?.rssi ?: -127
-                val isWifiOn = wifiManager.isWifiEnabled
-                val isConnected = isWifiOn && connectionInfo != null && connectionInfo.networkId != -1
-                val currentBssid = connectionInfo?.bssid
-                
-                Log.i("KioskService", "📊 Breach recheck: WiFi ON=$isWifiOn, Connected=$isConnected, BSSID=$currentBssid, RSSI=$currentRssiNow dBm")
-                
-                // Check if WiFi is ON but still connecting (grace period for reconnection)
-                if (isWifiOn && !isConnected) {
-                    Log.i("KioskService", "⏳ WiFi is ON but still connecting - giving it more time (canceling breach)")
-                    return@postDelayed
-                }
-                
-                // Check if WiFi is ON and signal is now strong
-                if (isConnected && currentRssiNow >= minRssi) {
-                    Log.i("KioskService", "✅ WiFi recovered (RSSI: $currentRssiNow >= $minRssi) - canceling breach")
-                    return@postDelayed
-                }
-                
-                // If WiFi is OFF or signal still weak, trigger breach
-                if (!isWifiOn) {
-                    Log.e("KioskService", "🚨 WiFi is OFF - TRIGGERING BREACH!")
-                } else if (!isConnected) {
-                    Log.e("KioskService", "🚨 WiFi disconnected - TRIGGERING BREACH!")
-                } else {
-                    Log.e("KioskService", "🚨 WiFi signal still weak ($currentRssiNow < $minRssi) - TRIGGERING BREACH!")
-                }
 
-
-                serviceScope.launch {
+            // Send breach alert
+            serviceScope.launch {
+                try {
+                    AgentRepository.default(applicationContext).alerts.breach(
+                        auth,
+                        BreachRequest(deviceId, roomId, currentRssi)
+                    )
+                    Log.i("KioskService", "✅ Breach alert sent successfully")
+                } catch (e: Exception) {
+                    Log.e("KioskService", "Breach alert failed, queuing offline: ${e.message}")
                     try {
-                        AgentRepository.default(applicationContext).alerts.breach(
-                            auth,
-                            BreachRequest(deviceId, roomId, currentRssi)
+                        OfflineQueueManager.getInstance(applicationContext).queueAlert(
+                            type = "breach",
+                            deviceId = deviceId,
+                            roomId = roomId,
+                            payload = mapOf("rssi" to currentRssi)
                         )
-                        Log.i("KioskService", "✅ Breach alert sent successfully")
-                    } catch (e: Exception) {
-                        Log.e("KioskService", "Breach alert failed, queuing offline: ${e.message}")
-                        try {
-                            OfflineQueueManager.getInstance(applicationContext).queueAlert(
-                                type = "breach",
-                                deviceId = deviceId,
-                                roomId = roomId,
-                                payload = mapOf("rssi" to currentRssi)
-                            )
-                        } catch (queueEx: Exception) {
-                            Log.e("KioskService", "Failed to queue breach alert", queueEx)
-                        }
+                    } catch (queueEx: Exception) {
+                        Log.e("KioskService", "Failed to queue breach alert", queueEx)
                     }
                 }
+            }
 
-                // Show orange breach screen
-                val lockIntent =
-                    Intent(this, com.example.hotel.ui.LockActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Show orange breach screen immediately
+            // Check if we have permission to show over other apps
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(applicationContext)) {
+                    Log.e("KioskService", "⚠️ No SYSTEM_ALERT_WINDOW permission - cannot show breach screen over other apps")
+                    android.widget.Toast.makeText(
+                        applicationContext,
+                        "Please enable 'Display over other apps' permission",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            
+            val lockIntent =
+                Intent(this, com.example.hotel.ui.LockActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
-                Log.e("KioskService", "🔒 Launching LockActivity (Orange Breach Screen)...")
+            Log.e("KioskService", "🔒 Launching LockActivity (Orange Breach Screen)...")
+            try {
                 startActivity(lockIntent)
                 Log.e("KioskService", "✅ LockActivity launched successfully")
-            }, 2000) // Wait 2 seconds to allow WiFi reconnection
+            } catch (e: Exception) {
+                Log.e("KioskService", "❌ Failed to launch LockActivity: ${e.message}", e)
+            }
             },
             onRecovery = {
                 // WiFi recovered - close the breach screen if it's open
-                Log.i("KioskService", "🎉 WiFi RECOVERED - closing breach screen")
+                Log.e("KioskService", "")
+                Log.e("KioskService", "═══════════════════════════════════════════")
+                Log.e("KioskService", "🎉🎉🎉 WIFI RECOVERY CALLBACK TRIGGERED")
+                Log.e("KioskService", "═══════════════════════════════════════════")
+                
+                // Send recovery heartbeat to backend to clear breach status
+                Log.e("KioskService", "📤 Sending recovery heartbeat to backend...")
+                serviceScope.launch {
+                    try {
+                        val wifiManager = getSystemService(Context.WIFI_SERVICE) as WifiManager
+                        @Suppress("DEPRECATION")
+                        val connectionInfo = wifiManager.connectionInfo
+                        val currentRssi = connectionInfo?.rssi ?: -127
+                        val currentBssid = connectionInfo?.bssid ?: bssid
+                        
+                        // Get current battery level
+                        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+                        val batteryLevel = batteryManager.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                        
+                        AgentRepository.default(applicationContext).alerts.heartbeat(
+                            auth,
+                            HeartbeatRequest(
+                                deviceId = deviceId,
+                                roomId = roomId,
+                                wifiBssid = currentBssid,
+                                rssi = currentRssi,
+                                battery = batteryLevel
+                            )
+                        )
+                        Log.e("KioskService", "✅ Recovery heartbeat sent successfully (RSSI: $currentRssi, Battery: $batteryLevel%) - backend should clear breach status")
+                    } catch (e: Exception) {
+                        Log.e("KioskService", "❌ Recovery heartbeat failed: ${e.message}", e)
+                    }
+                }
+                
+                Log.e("KioskService", "📡 Sending broadcast to close LockActivity")
                 
                 // Broadcast to close LockActivity
                 val intent = Intent("com.example.hotel.WIFI_RECOVERED")
+                intent.setPackage(packageName)  // Explicitly target this app
                 sendBroadcast(intent)
+                Log.e("KioskService", "✅ WIFI_RECOVERED broadcast sent")
                 
                 // Show toast notification
                 Handler(Looper.getMainLooper()).post {
