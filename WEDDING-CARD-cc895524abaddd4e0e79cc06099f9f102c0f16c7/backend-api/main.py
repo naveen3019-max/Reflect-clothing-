@@ -89,6 +89,10 @@ async def monitor_device_heartbeats():
                 last_seen = device.get("last_seen")
                 if not last_seen:
                     continue
+                
+                # Convert naive datetime to timezone-aware if needed
+                if last_seen.tzinfo is None:
+                    last_seen = ist.localize(last_seen)
                     
                 offline_seconds = (current_time - last_seen).total_seconds()
                 
@@ -526,6 +530,10 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     
     # Check if device was offline for more than 15 seconds (WiFi was OFF)
     if last_seen and existing_status == StatusEnum.ok:
+        # Convert naive datetime to timezone-aware if needed
+        if last_seen.tzinfo is None:
+            last_seen = ist.localize(last_seen)
+        
         offline_duration = (h.ts - last_seen).total_seconds()
         if offline_duration > 15:
             logger.warning(f"🚨 WiFi OFF Breach Detected: Device {h.deviceId} was offline for {offline_duration:.1f} seconds")
