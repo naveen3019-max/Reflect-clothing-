@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
+import pytz
 from db import (
     db, devices_collection, alerts_collection, rooms_collection,
     StatusEnum, init_db
@@ -54,6 +55,12 @@ app.add_middleware(
     max_age=3600
 )
 
+# Helper function for Indian Standard Time
+def get_ist_time():
+    """Get current time in Indian Standard Time"""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist)
+
 # Redis connection for SSE
 redis_client = None
 
@@ -64,11 +71,13 @@ async def monitor_device_heartbeats():
     """Background task to detect devices that stop sending heartbeats (WiFi OFF)"""
     logger.info("🔍 Heartbeat monitoring task started")
     
+    ist = pytz.timezone('Asia/Kolkata')
+    
     while True:
         try:
             await asyncio.sleep(5)  # Check every 5 seconds
             
-            current_time = datetime.utcnow()
+            current_time = datetime.now(ist)
             
             # Find devices that are "ok" but haven't sent heartbeat in 12+ seconds
             devices = await devices_collection.find({
@@ -245,7 +254,7 @@ async def health_check():
             "status": "healthy",
             "database": "connected",
             "redis": redis_client is not None,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_ist_time().isoformat()
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -263,7 +272,7 @@ async def metrics():
         "total_devices": total_devices,
         "total_alerts": total_alerts,
         "breached_devices": breached,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_time().isoformat()
     }
 
 # Authentication endpoints
@@ -310,7 +319,7 @@ async def register_device(payload: DeviceRegister):
         "room_id": payload.roomId,
         "hotel_id": payload.hotelId or "default",
         "status": StatusEnum.ok,
-        "last_seen": datetime.utcnow()
+        "last_seen": get_ist_time()
     }
     
     await devices_collection.update_one(
@@ -340,7 +349,9 @@ async def register_device(payload: DeviceRegister):
 @app.post("/api/alert/breach")
 async def alert_breach(b: Breach, device=Depends(get_current_device)):
     """Record breach alert (JWT protected)"""
-    b.ts = b.ts or datetime.utcnow()
+    # Use Indian Standard Time
+    ist = pytz.timezone('Asia/Kolkata')
+    b.ts = b.ts or datetime.now(ist)
     logger.warning(f"BREACH ALERT: Device {b.deviceId}, Room {b.roomId}, RSSI {b.rssi}")
     
     # Update device status
@@ -350,23 +361,21 @@ async def alert_breach(b: Breach, device=Depends(get_current_device)):
             "$set": {
                 "status": StatusEnum.breach,
                 "rssi": b.rssi,
-                "last_seen": b.ts
+                "last_seen": b.ts,
+                "roomId": b.roomId
             }
         },
         upsert=True
     )
     
-    # Create alert
+    # Create alert with proper deviceId and roomId fields
     alert_data = {
+        "deviceId": b.deviceId,
+        "roomId": b.roomId,
         "type": "breach",
-        "device_id": b.deviceId,
-        "room_id": b.roomId,
-        "payload": {
-            "deviceId": b.deviceId,
-            "roomId": b.roomId,
-            "rssi": b.rssi,
-            "ts": b.ts.isoformat()
-        },
+        "severity": "critical",
+        "message": f"WiFi disconnected - Device breach detected",
+        "rssi": b.rssi,
         "ts": b.ts,
         "acknowledged": False
     }
@@ -398,7 +407,7 @@ async def alert_breach(b: Breach, device=Depends(get_current_device)):
 @app.post("/api/alert/tamper")
 async def alert_tamper(t: Tamper, device=Depends(get_current_device)):
     """Record tamper alert (JWT protected)"""
-    t.ts = t.ts or datetime.utcnow()
+    t.ts = t.ts or get_ist_time()
     logger.warning(f"TAMPER ALERT: Device {t.deviceId}, Threats {t.threats}")
     
     # Update device status
@@ -449,7 +458,7 @@ async def alert_tamper(t: Tamper, device=Depends(get_current_device)):
 @app.post("/api/alert/battery")
 async def alert_battery(b: Battery, device=Depends(get_current_device)):
     """Record battery alert (JWT protected)"""
-    b.ts = b.ts or datetime.utcnow()
+    b.ts = b.ts or get_ist_time()
     logger.warning(f"BATTERY ALERT: Device {b.deviceId}, Level {b.level}%")
     
     # Update device battery
@@ -501,7 +510,9 @@ async def alert_battery(b: Battery, device=Depends(get_current_device)):
 @app.post("/api/heartbeat")
 async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     """Record device heartbeat (JWT protected)"""
-    h.ts = h.ts or datetime.utcnow()
+    # Use Indian Standard Time
+    ist = pytz.timezone('Asia/Kolkata')
+    h.ts = h.ts or datetime.now(ist)
     
     # Print for immediate visibility
     print(f"💓 HEARTBEAT: {h.deviceId} | Room: {h.roomId} | RSSI: {h.rssi} dBm | Battery: {h.battery}%", flush=True)
@@ -671,7 +682,7 @@ async def acknowledge_alert(payload: AlertAcknowledge):
             "$set": {
                 "acknowledged": True,
                 "acknowledged_by": payload.acknowledgedBy,
-                "acknowledged_at": datetime.utcnow(),
+                "acknowledged_at": get_ist_time(),
                 "notes": payload.notes
             }
         }
@@ -781,7 +792,7 @@ async def quick_add_device(
         "room_id": roomId,
         "hotel_id": hotelId,
         "status": StatusEnum.ok,
-        "last_seen": datetime.utcnow(),
+        "last_seen": get_ist_time(),
         "battery": None,
         "rssi": None
     }
@@ -923,7 +934,7 @@ async def sse_endpoint():
                         # Send ping to keep connection alive
                         yield {
                             "event": "ping",
-                            "data": json.dumps({"timestamp": datetime.utcnow().isoformat()})
+                            "data": json.dumps({"timestamp": get_ist_time().isoformat()})
                         }
         finally:
             # Clean up this client's queue when connection closes
@@ -939,7 +950,7 @@ async def broadcast_event(event_type: str, data: dict):
     message = json.dumps({
         "type": event_type,
         "data": data,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_time().isoformat()
     })
     
     if redis_client:
