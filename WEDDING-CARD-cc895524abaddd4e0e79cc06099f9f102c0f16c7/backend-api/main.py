@@ -718,13 +718,16 @@ async def recent_alerts(limit: int = 100, hotel_id: Optional[str] = None):
     # Optimized query with projection to reduce data transfer
     cursor = alerts_collection.find(
         query,
-        projection={"payload": 1, "type": 1, "device_id": 1, "room_id": 1, "ts": 1, "acknowledged": 1, "acknowledged_by": 1, "acknowledged_at": 1}
+        projection={"payload": 1, "type": 1, "deviceId": 1, "roomId": 1, "device_id": 1, "room_id": 1, "severity": 1, "message": 1, "ts": 1, "acknowledged": 1, "acknowledged_by": 1, "acknowledged_at": 1}
     ).sort("ts", -1).limit(limit)
     alerts = await cursor.to_list(length=limit)
     
-    # Convert ObjectId to string efficiently
+    # Convert ObjectId to string and normalize field names
     for alert in alerts:
         alert["id"] = str(alert.pop("_id"))
+        # Support both camelCase and snake_case for backward compatibility
+        alert["deviceId"] = alert.get("deviceId") or alert.get("device_id", "Unknown")
+        alert["roomId"] = alert.get("roomId") or alert.get("room_id", "Unknown")
         if alert.get("ts"):
             alert["ts"] = alert["ts"].isoformat()
         if alert.get("acknowledged_at"):
