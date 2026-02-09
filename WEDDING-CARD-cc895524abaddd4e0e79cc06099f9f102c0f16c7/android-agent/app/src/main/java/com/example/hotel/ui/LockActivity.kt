@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -66,6 +67,18 @@ class LockActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         
         android.util.Log.e("LockActivity", "🔒 LockActivity starting...")
+        
+        // Ensure activity appears on top of everything and wakes screen
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         
         // CRITICAL: Check WiFi status immediately when starting
         // If WiFi is already connected, close immediately (recovery happened before we launched)

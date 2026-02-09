@@ -3,6 +3,7 @@ package com.example.hotel.service
 import android.app.Service
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,6 +14,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.WindowManager
+import android.graphics.PixelFormat
 import androidx.core.app.NotificationCompat
 import com.example.hotel.security.BatteryWatcher
 import com.example.hotel.security.WifiFence
@@ -32,6 +37,8 @@ class KioskService : Service() {
     private lateinit var wifiFence: WifiFence
     private lateinit var batteryWatcher: BatteryWatcher
     private var wifiStateReceiver: WifiStateReceiver? = null
+    private var breachOverlayView: View? = null
+    private var windowManager: WindowManager? = null
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var isRunning = false
@@ -108,6 +115,19 @@ class KioskService : Service() {
                 "targetBssid=$bssid, minRssi=$minRssi"
             )
             
+            // Check notification permissions
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val areNotificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                notificationManager.areNotificationsEnabled()
+            } else {
+                true
+            }
+            Log.e("KioskService", "📬 Notifications enabled: $areNotificationsEnabled")
+            
+            if (!areNotificationsEnabled) {
+                Log.e("KioskService", "⚠️ WARNING: Notifications are DISABLED - breach alerts will not work!")
+            }
+            
             /* ---------------- WIFI FENCE WITH MULTI-SIGNAL DETECTION -------- */
 
         wifiFence = WifiFence(
@@ -157,29 +177,54 @@ class KioskService : Service() {
                 }
             }
 
-            // Show orange breach screen immediately
-            // Check if we have permission to show over other apps
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (!Settings.canDrawOverlays(applicationContext)) {
-                    Log.e("KioskService", "⚠️ No SYSTEM_ALERT_WINDOW permission - cannot show breach screen over other apps")
-                    android.widget.Toast.makeText(
-                        applicationContext,
-                        "Please enable 'Display over other apps' permission",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+            // Show breach screen - launch activity directly
+            Log.e("KioskService", "")
+            Log.e("KioskService", "═══════════════════════════════════════════")
+            Log.e("KioskService", "🚨🚨🚨 BREACH DETECTED - LAUNCHING ORANGE SCREEN")
+            Log.e("KioskService", "═══════════════════════════════════════════")
+            Log.e("KioskService", "")
             
-            val lockIntent =
-                Intent(this, com.example.hotel.ui.LockActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-
-            Log.e("KioskService", "🔒 Launching LockActivity (Orange Breach Screen)...")
             try {
+                // Launch LockActivity directly with aggressive flags
+                val lockIntent = Intent(this, com.example.hotel.ui.LockActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                    addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY)
+                }
+                
+                // Launch activity immediately
                 startActivity(lockIntent)
-                Log.e("KioskService", "✅ LockActivity launched successfully")
+                Log.e("KioskService", "✅ ORANGE BREACH SCREEN LAUNCHED")
+                
+                // Also show a simple notification as backup
+                val pendingIntent = PendingIntent.getActivity(
+                    this,
+                    100,
+                    lockIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                
+                val breachNotification = NotificationCompat.Builder(this, "BREACH_ALERTS")
+                    .setContentTitle("⚠️ WiFi Disconnected")
+                    .setContentText("Please reconnect WiFi to restore security monitoring")
+                    .setStyle(NotificationCompat.BigTextStyle()
+                        .bigText("WiFi connection lost. Please reconnect to WiFi immediately to restore device security monitoring."))
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setAutoCancel(true)
+                    .setContentIntent(pendingIntent)
+                    .setFullScreenIntent(pendingIntent, true)
+                    .build()
+                
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(999, breachNotification)
+                Log.e("KioskService", "✅ Backup notification posted")
+                
             } catch (e: Exception) {
-                Log.e("KioskService", "❌ Failed to launch LockActivity: ${e.message}", e)
+                Log.e("KioskService", "❌ CRITICAL: Failed to show breach alert: ${e.message}", e)
             }
             },
             onRecovery = {
@@ -220,6 +265,12 @@ class KioskService : Service() {
                 }
                 
                 Log.e("KioskService", "📡 Sending broadcast to close LockActivity")
+                
+                // Dismiss breach notification
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(999)
+                
+                Log.e("KioskService", "✅ Breach notification dismissed")
                 
                 // Broadcast to close LockActivity
                 val intent = Intent("com.example.hotel.WIFI_RECOVERED")
@@ -346,17 +397,29 @@ class KioskService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Low priority channel for foreground service
+            val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
                 "Hotel Kiosk Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Keeps device monitoring active"
             }
-
-            val manager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(serviceChannel)
+            
+            // High priority channel for breach alerts
+            val breachChannel = NotificationChannel(
+                "BREACH_ALERTS",
+                "Security Breach Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Critical security breach notifications"
+                enableVibration(true)
+                enableLights(true)
+            }
+            manager.createNotificationChannel(breachChannel)
         }
     }
 
@@ -366,6 +429,9 @@ class KioskService : Service() {
         serviceScope.cancel()
         wifiFence.stop()
         batteryWatcher.stop()
+        
+        // Remove breach overlay if showing
+        dismissBreachOverlay()
         
         // Unregister WiFi state receiver
         wifiStateReceiver?.let {
@@ -378,6 +444,92 @@ class KioskService : Service() {
         }
         
         Log.d("KioskService", "Service stopped")
+    }
+    
+    private fun showBreachOverlay() {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                if (breachOverlayView != null) {
+                    Log.w("KioskService", "Breach overlay already showing")
+                    return@post
+                }
+                
+                windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                
+                // Inflate the breach screen layout
+                val inflater = getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
+                breachOverlayView = inflater.inflate(
+                    applicationContext.resources.getIdentifier("activity_lock", "layout", packageName), 
+                    null
+                )
+                
+                // Set up window params for overlay
+                val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
+                }
+                
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    layoutFlag,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                    PixelFormat.TRANSLUCENT
+                )
+                
+                windowManager?.addView(breachOverlayView, params)
+                Log.e("KioskService", "✅ Breach overlay added to WindowManager")
+                
+            } catch (e: Exception) {
+                Log.e("KioskService", "❌ Failed to show breach overlay: ${e.message}", e)
+                breachOverlayView = null
+            }
+        }
+    }
+    
+    private fun dismissBreachOverlay() {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                if (breachOverlayView != null && windowManager != null) {
+                    windowManager?.removeView(breachOverlayView)
+                    breachOverlayView = null
+                    Log.e("KioskService", "✅ Breach overlay removed")
+                }
+            } catch (e: Exception) {
+                Log.e("KioskService", "❌ Failed to remove breach overlay: ${e.message}", e)
+            }
+        }
+    }
+    
+    private fun showBreachNotification() {
+        val lockIntent = Intent(this, com.example.hotel.ui.LockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, lockIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val notification = NotificationCompat.Builder(this, "BREACH_ALERTS")
+            .setContentTitle("🚨 SECURITY BREACH")
+            .setContentText("Device moved out of room - Tap to view")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .setFullScreenIntent(pendingIntent, true)
+            .setContentIntent(pendingIntent)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(999, notification)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
