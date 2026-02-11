@@ -524,50 +524,12 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     
     logger.info(f"💓 HEARTBEAT: {h.deviceId} | Room: {h.roomId} | RSSI: {h.rssi} dBm | BSSID: {h.wifiBssid[:17]}")
     
-    # Check current status and last seen time
+    # Get current device status
     current_device = await devices_collection.find_one({"_id": h.deviceId})
     existing_status = current_device.get("status", StatusEnum.ok) if current_device else StatusEnum.ok
-    last_seen = current_device.get("last_seen") if current_device else None
     
-    # Check if device was offline for more than 15 seconds (WiFi was OFF)
-    if last_seen and existing_status == StatusEnum.ok:
-        # Convert naive datetime to timezone-aware if needed
-        if last_seen.tzinfo is None:
-            last_seen = ist.localize(last_seen)
-        
-        offline_duration = (h.ts - last_seen).total_seconds()
-        if offline_duration > 15:
-            logger.warning(f"🚨 WiFi OFF Breach Detected: Device {h.deviceId} was offline for {offline_duration:.1f} seconds")
-            existing_status = StatusEnum.breach
-            
-            # Create breach alert for WiFi OFF period
-            await alerts_collection.insert_one({
-                "deviceId": h.deviceId,
-                "roomId": h.roomId,
-                "type": "breach",
-                "severity": "critical",
-                "message": f"WiFi was turned OFF - device offline for {offline_duration:.0f} seconds",
-                "rssi": h.rssi,
-                "bssid": h.wifiBssid,
-                "ts": h.ts,
-                "acknowledged": False,
-                "offline_duration": offline_duration
-            })
-            
-            # Broadcast alert immediately
-            await broadcast_event("alert", {
-                "type": "breach",
-                "deviceId": h.deviceId,
-                "roomId": h.roomId,
-                "rssi": h.rssi,
-                "message": f"WiFi OFF - offline for {offline_duration:.0f}s",
-                "source": "wifi_off_detection"
-            })
-            
-            # Send notification
-            asyncio.create_task(
-                NotificationService.send_breach_alert(h.deviceId, h.roomId, h.rssi)
-            )
+    # NOTE: WiFi OFF detection is handled by monitor_device_heartbeats() background task
+    # We don't double-detect here to avoid duplicate breach alerts
     
     # Proactive breach detection: Check BSSID/RSSI against room baseline
     new_status = existing_status
