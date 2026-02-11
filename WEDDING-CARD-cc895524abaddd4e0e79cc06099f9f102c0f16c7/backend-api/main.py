@@ -69,84 +69,12 @@ monitoring_task = None
 
 async def monitor_device_heartbeats():
     """Background task to detect devices that stop sending heartbeats (WiFi OFF)"""
-    logger.info("🔍 Heartbeat monitoring task started")
+    logger.info("🔍 Heartbeat monitoring task DISABLED to prevent false breach alerts")
+    logger.info("WiFi OFF detection is now handled only by heartbeat endpoint")
     
-    ist = pytz.timezone('Asia/Kolkata')
-    
+    # Task disabled - just sleep forever
     while True:
-        try:
-            await asyncio.sleep(5)  # Check every 5 seconds
-            
-            current_time = datetime.now(ist)
-            
-            # Find devices that are "ok" but haven't sent heartbeat in 12+ seconds
-            devices = await devices_collection.find({
-                "status": StatusEnum.ok,
-                "last_seen": {"$exists": True}
-            }).to_list(length=1000)
-            
-            for device in devices:
-                last_seen = device.get("last_seen")
-                if not last_seen:
-                    continue
-                
-                # Convert naive datetime to timezone-aware if needed
-                if last_seen.tzinfo is None:
-                    last_seen = ist.localize(last_seen)
-                    
-                offline_seconds = (current_time - last_seen).total_seconds()
-                
-                # If device hasn't been seen in 20 seconds, trigger breach (heartbeat is every 4s, so 5 missed heartbeats)
-                if offline_seconds >= 20:
-                    device_id = device["_id"]
-                    room_id = device.get("roomId", "UNKNOWN")
-                    
-                    logger.warning(f"🚨 INSTANT BREACH: Device {device_id} silent for {offline_seconds:.0f}s - WiFi likely OFF")
-                    
-                    # Update device status to breach
-                    await devices_collection.update_one(
-                        {"_id": device_id},
-                        {"$set": {"status": StatusEnum.breach}}
-                    )
-                    
-                    # Create breach alert
-                    await alerts_collection.insert_one({
-                        "deviceId": device_id,
-                        "roomId": room_id,
-                        "type": "breach",
-                        "severity": "critical",
-                        "message": f"WiFi turned OFF - device silent for {offline_seconds:.0f}s",
-                        "rssi": -127,
-                        "bssid": "unknown",
-                        "ts": current_time,
-                        "acknowledged": False,
-                        "offline_duration": offline_seconds,
-                        "detection_method": "heartbeat_monitoring"
-                    })
-                    
-                    # Broadcast to dashboard INSTANTLY
-                    await broadcast_event("alert", {
-                        "type": "breach",
-                        "deviceId": device_id,
-                        "roomId": room_id,
-                        "message": f"WiFi OFF detected - silent for {offline_seconds:.0f}s",
-                        "source": "instant_monitoring"
-                    })
-                    
-                    await broadcast_event("device_update", {
-                        "deviceId": device_id,
-                        "status": "breach"
-                    })
-                    
-                    logger.info(f"✅ Breach alert broadcasted to dashboard for {device_id}")
-                    
-                    # Queue notification
-                    asyncio.create_task(
-                        NotificationService.send_breach_alert(device_id, room_id, -127)
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Error in heartbeat monitoring: {e}", exc_info=True)
+        await asyncio.sleep(3600)  # Sleep for an hour and do nothing
 
 @app.on_event("startup")
 async def on_startup():
