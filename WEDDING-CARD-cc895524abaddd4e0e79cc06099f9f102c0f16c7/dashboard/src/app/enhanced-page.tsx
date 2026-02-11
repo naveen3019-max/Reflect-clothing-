@@ -5,17 +5,23 @@ const API = process.env.NEXT_PUBLIC_API_URL || "https://hotel-backend-zqc1.onren
 
 // Format timestamp to Indian Standard Time
 const formatISTTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  return date.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  });
+  try {
+    const date = new Date(dateString);
+    // Format in IST timezone
+    const istString = date.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+    return `${istString} IST`;
+  } catch (e) {
+    return dateString;
+  }
 };
 
 type Device = {
