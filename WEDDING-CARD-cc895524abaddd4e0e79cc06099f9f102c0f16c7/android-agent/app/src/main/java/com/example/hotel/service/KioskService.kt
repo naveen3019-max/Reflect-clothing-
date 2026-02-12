@@ -100,11 +100,32 @@ class KioskService : Service() {
             val bssid = prefs.getString("bssid", "AA:BB:CC:DD:EE:FF")!!
             val ssid = prefs.getString("ssid", null)
             val minRssi = prefs.getInt("minRssi", -70)
+            val backendUrl = prefs.getString("backend_url", "NOT_SET")
+            
+            Log.i("KioskService", "📱 Device Configuration:")
+            Log.i("KioskService", "   Device ID: '$deviceId'")
+            Log.i("KioskService", "   Room ID: '$roomId'")
+            Log.i("KioskService", "   Backend URL: '$backendUrl'")
+            Log.i("KioskService", "   SSID: '$ssid'")
+            Log.i("KioskService", "   BSSID: '$bssid'")
+            Log.i("KioskService", "   Min RSSI: $minRssi dBm")
             
             val auth = prefs.getString("jwt_token", null)?.let { "Bearer $it" }
+            Log.i("KioskService", "   JWT Token: ${if (auth != null) "Present (${auth.length} chars)" else "❌ MISSING!"}")
+            
+            Log.i("KioskService", "")
+            Log.i("KioskService", "🔧 ACTIVE MONITORING:")
+            Log.i("KioskService", "   ✅ WiFi Breach Detection: ENABLED")
+            Log.i("KioskService", "      • Signal Threshold: $minRssi dBm")
+            Log.i("KioskService", "      • Grace Period: 3 seconds")
+            Log.i("KioskService", "      • WiFi OFF Detection: ENABLED")
+            Log.i("KioskService", "   ✅ Battery Low Detection: ENABLED (20%)")
+            Log.i("KioskService", "   ❌ Tamper Detection: DISABLED")
+            Log.i("KioskService", "")
 
             if (auth == null) {
-                Log.e("KioskService", "No JWT token found, stopping service")
+                Log.e("KioskService", "❌ CRITICAL: No JWT token found - Device needs registration!")
+                Log.e("KioskService", "   Please open the app and complete device registration")
                 stopSelf()
                 return
             }
@@ -142,8 +163,10 @@ class KioskService : Service() {
             
             Log.e("KioskService", "")
             Log.e("KioskService", "🚨🚨🚨 WiFi FENCE BREACH DETECTED!")
-            Log.e("KioskService", "   RSSI: $currentRssi dBm")
+            Log.e("KioskService", "   Current RSSI: $currentRssi dBm")
             Log.e("KioskService", "   Min RSSI: $minRssi dBm")
+            Log.e("KioskService", "   Target BSSID: $bssid")
+            Log.e("KioskService", "   Target SSID: $ssid")
             
             // Check if WiFi PIN dialog is currently active
             val prefs = getSharedPreferences("agent", Context.MODE_PRIVATE)
@@ -155,24 +178,34 @@ class KioskService : Service() {
             }
 
             // Send breach alert
+            Log.i("KioskService", "🚨 Sending breach alert to backend...")
+            Log.i("KioskService", "   Device ID: '$deviceId'")
+            Log.i("KioskService", "   Room ID: '$roomId'")
+            Log.i("KioskService", "   RSSI: $currentRssi dBm")
+            Log.i("KioskService", "   Auth Token: ${if (auth != null) "Present" else "Missing"}")
+            
             serviceScope.launch {
                 try {
-                    AgentRepository.default(applicationContext).alerts.breach(
+                    Log.d("KioskService", "🌐 Making API call to breach endpoint...")
+                    val response = AgentRepository.default(applicationContext).alerts.breach(
                         auth,
                         BreachRequest(deviceId, roomId, currentRssi)
                     )
-                    Log.i("KioskService", "✅ Breach alert sent successfully")
+                    Log.i("KioskService", "✅ Breach alert sent successfully: $response")
                 } catch (e: Exception) {
-                    Log.e("KioskService", "Breach alert failed, queuing offline: ${e.message}")
+                    Log.e("KioskService", "❌ Breach alert failed: ${e.javaClass.simpleName}: ${e.message}")
+                    Log.e("KioskService", "Full stack trace:", e)
                     try {
+                        Log.d("KioskService", "💾 Queuing breach alert for later sync...")
                         OfflineQueueManager.getInstance(applicationContext).queueAlert(
                             type = "breach",
                             deviceId = deviceId,
                             roomId = roomId,
                             payload = mapOf("rssi" to currentRssi)
                         )
+                        Log.d("KioskService", "✅ Breach alert queued offline successfully")
                     } catch (queueEx: Exception) {
-                        Log.e("KioskService", "Failed to queue breach alert", queueEx)
+                        Log.e("KioskService", "❌ Failed to queue breach alert", queueEx)
                     }
                 }
             }
@@ -266,6 +299,22 @@ class KioskService : Service() {
                 
                 Log.e("KioskService", "📡 Sending broadcast to close LockActivity")
                 
+                // Sync any queued offline alerts now that connectivity is restored
+                Log.e("KioskService", "📦 Syncing queued alerts now that WiFi is restored...")
+                serviceScope.launch {
+                    try {
+                        val offlineQueue = OfflineQueueManager.getInstance(applicationContext)
+                        val syncResult = offlineQueue.syncQueuedAlerts()
+                        Log.e("KioskService", "✅ Offline sync completed: ${syncResult.synced} alerts synced, ${syncResult.failed} failed")
+                        
+                        if (syncResult.synced > 0) {
+                            Log.e("KioskService", "🎉 ${syncResult.synced} breach alerts successfully sent to backend!")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("KioskService", "❌ Failed to sync offline queue: ${e.message}", e)
+                    }
+                }
+                
                 // Dismiss breach notification
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.cancel(999)
@@ -289,7 +338,15 @@ class KioskService : Service() {
             }
         )
 
+        Log.i("KioskService", "🚀 Starting WiFi Fence monitoring...")
+        Log.i("KioskService", "   Target BSSID: $bssid")
+        Log.i("KioskService", "   Target SSID: $ssid") 
+        Log.i("KioskService", "   Min RSSI Threshold: $minRssi dBm")
+        Log.i("KioskService", "   Grace Period: 3 seconds")
+        
         wifiFence.start()
+        
+        Log.i("KioskService", "✅ WiFi Fence started successfully")
 
         /* ---------------- WIFI STATE RECEIVER (BACKUP) ---------------- */
         // Keep receiver as backup

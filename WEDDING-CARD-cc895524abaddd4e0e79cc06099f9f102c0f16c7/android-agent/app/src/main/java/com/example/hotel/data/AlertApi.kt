@@ -47,6 +47,6 @@ interface AlertApi {
     @POST("/api/alert/tamper")
     suspend fun tamper(
         @Header("Authorization") auth: String,
-        @Body body: Map<String, Any>
+        @Body body: TamperRequest
     ): Map<String, Any>
 }

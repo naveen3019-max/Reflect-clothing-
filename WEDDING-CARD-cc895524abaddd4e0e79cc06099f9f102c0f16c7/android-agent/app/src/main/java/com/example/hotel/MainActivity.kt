@@ -57,8 +57,8 @@ class MainActivity : AppCompatActivity() {
         
         auth = "Bearer $jwtToken"
         
-        // Perform security checks
-        performSecurityCheck()
+        // TAMPER DETECTION DISABLED - Focus only on WiFi and Battery alerts
+        // performSecurityCheck()
         
         // Start foreground kiosk service
         Log.d("HotelAgent", "Requesting KioskService to start...")

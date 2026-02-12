@@ -29,3 +29,10 @@ data class RoomUpsertRequest(
     val bssid: String,
     val minRssi: Int
 )
+
+data class TamperRequest(
+    val deviceId: String,
+    val roomId: String,
+    val threats: List<String>,
+    val descriptions: List<String>
+)

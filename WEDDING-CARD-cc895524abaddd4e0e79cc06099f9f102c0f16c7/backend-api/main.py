@@ -486,6 +486,12 @@ async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
                 "message": "Device WiFi connection restored"
             })
         
+        # If device was compromised but WiFi is good, clear the compromised status
+        # (since tamper detection is now disabled, we reset on good connectivity)
+        elif existing_status == StatusEnum.compromised and wifi_is_good:
+            logger.info(f"✅ STATUS RESET: Device {h.deviceId} - Clearing compromised status on good WiFi")
+            new_status = StatusEnum.ok
+        
         # ONLY check for new breaches if device is OK or offline AND room has configuration
         elif existing_status in [StatusEnum.ok, StatusEnum.offline]:
             # 1. BSSID Mismatch check (case-insensitive)

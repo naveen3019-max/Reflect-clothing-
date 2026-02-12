@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.hotel.data.OfflineDatabase
 import com.example.hotel.data.QueuedAlert
 import com.example.hotel.data.AgentRepository
+import com.example.hotel.data.TamperRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -163,11 +164,11 @@ class OfflineQueueManager(private val context: Context) {
 
                     repository.alerts.tamper(
                         auth,
-                        mapOf(
-                            "deviceId" to alert.deviceId,
-                            "roomId" to (alert.roomId ?: "UNKNOWN"),
-                            "threats" to threatsList,
-                            "descriptions" to descriptionsList
+                        TamperRequest(
+                            deviceId = alert.deviceId,
+                            roomId = alert.roomId ?: "UNKNOWN",
+                            threats = threatsList,
+                            descriptions = descriptionsList
                         )
                     )
                 }
