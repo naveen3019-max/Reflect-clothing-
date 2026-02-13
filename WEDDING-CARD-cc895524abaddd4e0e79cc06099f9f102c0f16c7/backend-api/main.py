@@ -97,6 +97,12 @@ async def monitor_device_heartbeats():
                 
                 # Only trigger breach for devices that were previously OK or offline
                 if current_status in [StatusEnum.ok, StatusEnum.offline]:
+                    # Ensure last_seen is timezone-aware for comparison
+                    if last_seen and last_seen.tzinfo is None:
+                        # MongoDB stores naive datetimes, assume IST
+                        ist = pytz.timezone('Asia/Kolkata')
+                        last_seen = ist.localize(last_seen)
+                    
                     seconds_since_heartbeat = (now - last_seen).total_seconds()
                     
                     logger.warning(f"🚨 HEARTBEAT TIMEOUT: Device {device_id} - Last seen {int(seconds_since_heartbeat)}s ago (threshold: {HEARTBEAT_TIMEOUT_SECONDS}s)")
