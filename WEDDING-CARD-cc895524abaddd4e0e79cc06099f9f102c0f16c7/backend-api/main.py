@@ -269,7 +269,9 @@ def root():
         "version": "0.5.0",
         "environment": settings.app_env,
         "database": "MongoDB",
-        "features": ["JWT Auth", "SSE", "Multi-tenancy", "Message Queue"]
+        "features": ["JWT Auth", "SSE", "Multi-tenancy", "Message Queue"],
+        "server_time_ist": get_ist_time().isoformat(),
+        "server_time_readable": get_ist_time().strftime('%Y-%m-%d %I:%M:%S %p IST')
     }
 
 # Health check
