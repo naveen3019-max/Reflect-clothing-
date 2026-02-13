@@ -783,6 +783,59 @@ async def delete_device(device_id: str):
     
     return {"ok": True, "message": f"Device {device_id} deleted successfully"}
 
+# Clear all database data (DANGER ZONE - Fresh start)
+@app.post("/api/admin/clear-database")
+async def clear_database(confirm: str = Body(..., embed=True)):
+    """
+    ⚠️ DANGER ZONE: Clear ALL data from database
+    Requires confirmation: {"confirm": "DELETE ALL DATA"}
+    """
+    if confirm != "DELETE ALL DATA":
+        raise HTTPException(
+            status_code=400, 
+            detail="Confirmation required. Send: {\"confirm\": \"DELETE ALL DATA\"}"
+        )
+    
+    logger.warning("🗑️ DATABASE CLEAR REQUESTED - Deleting all data!")
+    
+    deleted_counts = {}
+    
+    try:
+        # Delete all devices
+        result = await devices_collection.delete_many({})
+        deleted_counts["devices"] = result.deleted_count
+        
+        # Delete all alerts
+        result = await alerts_collection.delete_many({})
+        deleted_counts["alerts"] = result.deleted_count
+        
+        # Delete all rooms
+        result = await rooms_collection.delete_many({})
+        deleted_counts["rooms"] = result.deleted_count
+        
+        logger.warning(f"✅ DATABASE CLEARED: {deleted_counts}")
+        
+        # Broadcast database clear event
+        await broadcast_event("database_cleared", {
+            "timestamp": get_ist_time().isoformat(),
+            "deleted_counts": deleted_counts
+        })
+        
+        return {
+            "ok": True,
+            "message": "Database cleared successfully - fresh start!",
+            "deleted": deleted_counts,
+            "next_steps": [
+                "1. Clear app data on tablets",
+                "2. Re-register all devices",
+                "3. Configure room baselines"
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing database: {e}")
+        raise HTTPException(status_code=500, detail=f"Database clear failed: {str(e)}")
+
 # Quick add device (Owner dashboard)
 @app.post("/api/devices/quick-add")
 async def quick_add_device(
