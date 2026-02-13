@@ -373,9 +373,8 @@ async def register_device(payload: DeviceRegister):
 @app.post("/api/alert/breach")
 async def alert_breach(b: Breach, device=Depends(get_current_device)):
     """Record breach alert (JWT protected)"""
-    # Use Indian Standard Time
-    ist = pytz.timezone('Asia/Kolkata')
-    b.ts = b.ts or datetime.now(ist)
+    # ALWAYS use server IST time (ignore device timestamp to prevent timezone issues)
+    b.ts = get_ist_time()
     logger.warning(f"BREACH ALERT: Device {b.deviceId}, Room {b.roomId}, RSSI {b.rssi}")
     
     # Update device status
@@ -432,7 +431,8 @@ async def alert_breach(b: Breach, device=Depends(get_current_device)):
 @app.post("/api/alert/tamper")
 async def alert_tamper(t: Tamper, device=Depends(get_current_device)):
     """Record tamper alert (JWT protected)"""
-    t.ts = t.ts or get_ist_time()
+    # ALWAYS use server IST time (ignore device timestamp to prevent timezone issues)
+    t.ts = get_ist_time()
     logger.warning(f"TAMPER ALERT: Device {t.deviceId}, Threats {t.threats}")
     
     # Update device status
@@ -483,7 +483,8 @@ async def alert_tamper(t: Tamper, device=Depends(get_current_device)):
 @app.post("/api/alert/battery")
 async def alert_battery(b: Battery, device=Depends(get_current_device)):
     """Record battery alert (JWT protected)"""
-    b.ts = b.ts or get_ist_time()
+    # ALWAYS use server IST time (ignore device timestamp to prevent timezone issues)
+    b.ts = get_ist_time()
     logger.warning(f"BATTERY ALERT: Device {b.deviceId}, Level {b.level}%")
     
     # Update device battery
@@ -535,9 +536,8 @@ async def alert_battery(b: Battery, device=Depends(get_current_device)):
 @app.post("/api/heartbeat")
 async def heartbeat(h: Heartbeat, device=Depends(get_current_device)):
     """Record device heartbeat (JWT protected)"""
-    # Use Indian Standard Time
-    ist = pytz.timezone('Asia/Kolkata')
-    h.ts = h.ts or datetime.now(ist)
+    # ALWAYS use server IST time (ignore device timestamp to prevent timezone issues)
+    h.ts = get_ist_time()
     
     # Print for immediate visibility
     print(f"💓 HEARTBEAT: {h.deviceId} | Room: {h.roomId} | RSSI: {h.rssi} dBm | Battery: {h.battery}%", flush=True)
