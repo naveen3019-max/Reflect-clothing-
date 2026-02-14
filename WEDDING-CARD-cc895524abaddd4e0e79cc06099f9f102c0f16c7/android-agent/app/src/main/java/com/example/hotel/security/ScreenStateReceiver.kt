@@ -22,42 +22,48 @@ class ScreenStateReceiver : BroadcastReceiver() {
             private set
         
         @Volatile
-        private var screenLockedTime: Long = 0
+        private var screenOffTime: Long = 0
         
-        // Grace period: Ignore WiFi disconnects for 3 minutes after screen off
-        // Covers manual lock, auto-timeout, and delayed WiFi disconnections
-        // Android 10+ can take up to 2 minutes to disconnect WiFi after screen off
-        private const val SCREEN_LOCK_GRACE_PERIOD_MS = 180_000L // 180 seconds (3 minutes)
+        @Volatile
+        private var screenOnTime: Long = 0
+        
+        // Grace period AFTER screen turns ON (not while OFF)
+        // WiFi needs time to reconnect after screen wakes up
+        // Screen OFF = NEVER show breach (indefinite)
+        // Screen ON = 3-minute grace for WiFi reconnect, then monitor
+        private const val SCREEN_ON_GRACE_PERIOD_MS = 180_000L // 180 seconds (3 minutes)
         
         fun getIsScreenLocked(): Boolean = !isScreenOn
         
         /**
-         * Check if WiFi breach should be ignored due to screen off
-         * Returns true if:
-         * - Screen is currently OFF (manual lock OR auto-timeout), OR
-         * - Screen was OFF within last 3 minutes (grace period)
+         * Check if WiFi breach should be ignored
          * 
-         * This covers:
-         * - Manual screen lock (power button)
-         * - Auto screen timeout (inactivity)
-         * - Delayed WiFi disconnection (Android 10+ can take 1-2 minutes)
+         * NEW LOGIC:
+         * 1. Screen OFF → ALWAYS ignore (indefinitely, no time limit)
+         * 2. Screen ON + within grace period → Ignore (WiFi needs time to reconnect)
+         * 3. Screen ON + grace expired → Allow breach detection
+         * 
+         * This ensures NO false breaches while screen is OFF (auto-timeout or manual lock),
+         * regardless of how long screen stays OFF
          */
         fun shouldIgnoreWiFiBreach(): Boolean {
+            // Screen OFF → NEVER show breach (indefinite, no matter how long)
             if (!isScreenOn) {
-                Log.d("ScreenState", "✅ Screen is OFF RIGHT NOW - ignoring WiFi breach")
-                return true // Screen is OFF RIGHT NOW
+                Log.d("ScreenState", "✅ Screen OFF - ignoring WiFi breach (indefinite)")
+                return true
             }
             
-            // Check if we're within grace period after screen turned back on
-            if (screenLockedTime > 0) {
-                val timeSinceScreenOff = System.currentTimeMillis() - screenLockedTime
-                if (timeSinceScreenOff < SCREEN_LOCK_GRACE_PERIOD_MS) {
-                    val secondsRemaining = (SCREEN_LOCK_GRACE_PERIOD_MS - timeSinceScreenOff) / 1000
-                    Log.d("ScreenState", "⏳ Grace period active: $secondsRemaining seconds remaining (screen was off ${timeSinceScreenOff/1000}s ago)")
+            // Screen ON → Check grace period (starts when screen turns ON)
+            if (screenOnTime > 0) {
+                val timeSinceScreenOn = System.currentTimeMillis() - screenOnTime
+                if (timeSinceScreenOn < SCREEN_ON_GRACE_PERIOD_MS) {
+                    val secsLeft = (SCREEN_ON_GRACE_PERIOD_MS - timeSinceScreenOn) / 1000
+                    Log.d("ScreenState", "⏳ Screen ON grace: $secsLeft secs remaining (WiFi reconnecting)")
                     return true
                 }
             }
             
+            Log.d("ScreenState", "⚠️ Screen ON + grace expired - WiFi monitoring ACTIVE")
             return false
         }
         
@@ -69,10 +75,12 @@ class ScreenStateReceiver : BroadcastReceiver() {
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             isScreenOn = powerManager.isInteractive
             if (!isScreenOn) {
-                screenLockedTime = System.currentTimeMillis()
+                screenOffTime = System.currentTimeMillis()
+            } else {
+                screenOnTime = System.currentTimeMillis()
             }
-            val state = if (isScreenOn) "UNLOCKED/ON" else "LOCKED/OFF"
-            Log.i("ScreenState", "🔍 Initialized screen state: $state")
+            val state = if (isScreenOn) "ON" else "OFF"
+            Log.i("ScreenState", "🔍 Init: Screen $state")
         }
     }
     
@@ -80,34 +88,34 @@ class ScreenStateReceiver : BroadcastReceiver() {
         when (intent?.action) {
             Intent.ACTION_SCREEN_OFF -> {
                 isScreenOn = false
-                screenLockedTime = System.currentTimeMillis()
+                screenOffTime = System.currentTimeMillis()
+                screenOnTime = 0 // Clear screen-on timestamp
                 Log.i("ScreenState", "")
                 Log.i("ScreenState", "═══════════════════════════════════════")
                 Log.i("ScreenState", "🌙 SCREEN OFF DETECTED")
                 Log.i("ScreenState", "   Cause: Manual lock OR Auto-timeout")
-                Log.i("ScreenState", "   Action: WiFi breaches IGNORED for 3 minutes")
-                Log.i("ScreenState", "   This is NORMAL power management")
+                Log.i("ScreenState", "   ✅ WiFi breaches IGNORED (INDEFINITELY)")
+                Log.i("ScreenState", "   No time limit - screen OFF = NO breach")
                 Log.i("ScreenState", "═══════════════════════════════════════")
             }
             Intent.ACTION_SCREEN_ON -> {
                 isScreenOn = true
-                // Don't reset screenLockedTime - keep grace period active
-                val elapsed = if (screenLockedTime > 0) (System.currentTimeMillis() - screenLockedTime) / 1000 else 0
-                Log.i("ScreenState", "☀️ Screen turned ON (was off for ${elapsed}s) - Grace period STILL ACTIVE for 3 minutes")
+                screenOnTime = System.currentTimeMillis() // Start grace period NOW
+                val elapsed = if (screenOffTime > 0) (System.currentTimeMillis() - screenOffTime) / 1000 else 0
+                Log.i("ScreenState", "")
+                Log.i("ScreenState", "═══════════════════════════════════════")
+                Log.i("ScreenState", "☀️ SCREEN ON DETECTED")
+                Log.i("ScreenState", "   Was off for: ${elapsed}s")
+                Log.i("ScreenState", "   ⏳ 3-minute grace period STARTED (WiFi reconnecting)")
+                Log.i("ScreenState", "   Breach detection resumes after grace")
+                Log.i("ScreenState", "═══════════════════════════════════════")
             }
             Intent.ACTION_USER_PRESENT -> {
                 // User unlocked the device (passed lock screen)
+                // This happens AFTER ACTION_SCREEN_ON, so screenOnTime already set
                 isScreenOn = true
-                // Reset grace period after user actually unlocks (not just screen on)
-                val elapsed = if (screenLockedTime > 0) (System.currentTimeMillis() - screenLockedTime) / 1000 else 0
-                screenLockedTime = 0 // Reset grace period
-                Log.i("ScreenState", "")
-                Log.i("ScreenState", "═══════════════════════════════════════")
-                Log.i("ScreenState", "🔓 USER UNLOCKED DEVICE")
-                Log.i("ScreenState", "   Screen was off for: ${elapsed}s")
-                Log.i("ScreenState", "   WiFi monitoring: ACTIVE")
-                Log.i("ScreenState", "   Grace period: RESET")
-                Log.i("ScreenState", "═══════════════════════════════════════")
+                val elapsed = if (screenOffTime > 0) (System.currentTimeMillis() - screenOffTime) / 1000 else 0
+                Log.i("ScreenState", "🔓 USER UNLOCKED (screen was off ${elapsed}s) - Grace period in progress")
             }
         }
     }
