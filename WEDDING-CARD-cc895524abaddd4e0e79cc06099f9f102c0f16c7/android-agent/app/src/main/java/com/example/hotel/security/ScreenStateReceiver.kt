@@ -3,6 +3,7 @@ package com.example.hotel.security
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.util.Log
 
 /**
@@ -19,6 +20,17 @@ class ScreenStateReceiver : BroadcastReceiver() {
             private set
         
         fun getIsScreenLocked(): Boolean = !isScreenOn
+        
+        /**
+         * Initialize screen state from PowerManager
+         * Call this when service starts to detect current screen state
+         */
+        fun initializeScreenState(context: Context) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            isScreenOn = powerManager.isInteractive
+            val state = if (isScreenOn) "UNLOCKED/ON" else "LOCKED/OFF"
+            Log.i("ScreenState", "🔍 Initialized screen state: $state")
+        }
     }
     
     override fun onReceive(context: Context?, intent: Intent?) {

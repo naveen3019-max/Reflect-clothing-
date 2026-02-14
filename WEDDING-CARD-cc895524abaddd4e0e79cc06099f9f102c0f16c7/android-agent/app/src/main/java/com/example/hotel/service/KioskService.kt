@@ -171,8 +171,12 @@ class KioskService : Service() {
             Log.e("KioskService", "   Target SSID: $ssid")
             
             // Check if screen is locked - WiFi disconnects during screen lock are NORMAL
-            if (ScreenStateReceiver.getIsScreenLocked()) {
+            val isScreenLocked = ScreenStateReceiver.getIsScreenLocked()
+            Log.e("KioskService", "   Screen State: ${if (isScreenLocked) "LOCKED 🌙" else "UNLOCKED ☀️"}")
+            
+            if (isScreenLocked) {
                 Log.w("KioskService", "🌙 Screen is LOCKED - WiFi disconnect is normal (power-saving), ignoring breach")
+                Log.w("KioskService", "   This is NOT a security breach, just Android power management!")
                 return@WifiFence
             }
             
@@ -371,6 +375,9 @@ class KioskService : Service() {
             addAction(Intent.ACTION_USER_PRESENT)
         }
         registerReceiver(screenStateReceiver, screenFilter)
+        
+        // Initialize current screen state (important if service starts while screen is locked)
+        ScreenStateReceiver.initializeScreenState(this)
         Log.i("KioskService", "✅ Screen state receiver registered - WiFi changes during screen lock will be ignored")
 
         /* ---------------- BATTERY WATCHER ---------------- */
