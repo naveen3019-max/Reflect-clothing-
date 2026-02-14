@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://hotel-backend-zqc1.onrender.com";
-const DASHBOARD_VERSION = "v2.8-timestamp-fix"; // Version for cache busting
+const DASHBOARD_VERSION = "v2.9-force-redeploy"; // Force Vercel to redeploy with correct timestamp fix
 
 // Format timestamp to Indian Standard Time
 const formatISTTime = (dateString: string): string => {
