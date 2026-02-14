@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://hotel-backend-zqc1.onrender.com";
+const DASHBOARD_VERSION = "v2.8-timestamp-fix"; // Version for cache busting
 
 // Format timestamp to Indian Standard Time
 const formatISTTime = (dateString: string): string => {
@@ -232,6 +233,7 @@ export default function EnhancedDashboard() {
             <h1 className="text-3xl font-bold text-gray-900">Hotel Tablet Security</h1>
             <p className="text-gray-600">
               {devices.length} devices • {alerts.filter((a) => a && !a.acknowledged).length} unacknowledged alerts
+              <span className="ml-3 text-xs text-gray-400">{DASHBOARD_VERSION}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -312,6 +314,14 @@ export default function EnhancedDashboard() {
                       {d.lastSeen ? formatISTTime(d.lastSeen) : "—"}
                     </span>
                   </div>
+                  {d.lastSeen && (
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span>Raw:</span>
+                      <span className="font-mono truncate ml-2" title={d.lastSeen}>
+                        {d.lastSeen.substring(0, 19)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
