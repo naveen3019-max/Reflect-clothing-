@@ -170,12 +170,14 @@ class KioskService : Service() {
             Log.e("KioskService", "   Target BSSID: $bssid")
             Log.e("KioskService", "   Target SSID: $ssid")
             
-            // Check if screen is locked - WiFi disconnects during screen lock are NORMAL
+            // Check if screen is locked OR within grace period after lock - WiFi disconnects are NORMAL
+            val shouldIgnore = ScreenStateReceiver.shouldIgnoreWiFiBreach()
             val isScreenLocked = ScreenStateReceiver.getIsScreenLocked()
             Log.e("KioskService", "   Screen State: ${if (isScreenLocked) "LOCKED 🌙" else "UNLOCKED ☀️"}")
+            Log.e("KioskService", "   Should Ignore: ${if (shouldIgnore) "YES (screen lock grace period)" else "NO"}")
             
-            if (isScreenLocked) {
-                Log.w("KioskService", "🌙 Screen is LOCKED - WiFi disconnect is normal (power-saving), ignoring breach")
+            if (shouldIgnore) {
+                Log.w("KioskService", "🌙 Ignoring WiFi disconnect - Screen lock or grace period active")
                 Log.w("KioskService", "   This is NOT a security breach, just Android power management!")
                 return@WifiFence
             }

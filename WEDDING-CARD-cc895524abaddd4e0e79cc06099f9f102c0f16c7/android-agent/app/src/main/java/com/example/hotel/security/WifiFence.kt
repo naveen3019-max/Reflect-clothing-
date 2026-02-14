@@ -239,9 +239,10 @@ class WifiFence(
 
                 if (elapsedSeconds >= graceSeconds && !isInRecoveryCooldown) {
                     if (!isInBreachState) {
-                        // CRITICAL: Don't trigger breach if screen is locked (WiFi disconnect is normal power-saving behavior)
-                        if (ScreenStateReceiver.getIsScreenLocked()) {
-                            Log.w("WifiFence", "🌙 Screen is LOCKED - WiFi disconnect is normal (power-saving), resetting breach counter")
+                        // CRITICAL: Don't trigger breach if screen is locked OR within grace period after lock
+                        // WiFi disconnect is normal power-saving behavior on Android
+                        if (ScreenStateReceiver.shouldIgnoreWiFiBreach()) {
+                            Log.w("WifiFence", "🌙 Screen lock grace period active - WiFi disconnect is normal, resetting breach counter")
                             breachCounter = 0
                             return
                         }
