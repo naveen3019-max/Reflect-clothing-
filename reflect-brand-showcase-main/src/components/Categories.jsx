@@ -4,7 +4,7 @@ import { useScrollReveal } from '../hooks/useScrollReveal';
 const categories = [
     {
         name: 'Trousers',
-        image: 'https://www.apella.in/cdn/shop/files/Men_Plus_Size_Cocoa_Classic_Solid_Formal_Trousers_2.jpg?v=1756267427&width=1946',
+        image: 'https://th.bing.com/th/id/OIP.5berA6OgVj_4G1C54PyhVgHaLH?w=204&h=306&c=7&r=0&o=7&dpr=1.3&pid=1.7&rm=3',
         size: 'large',
         offset: '0px'
     },
